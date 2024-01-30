@@ -1,0 +1,103 @@
+{
+  "name": "CIPP Cyber Essentials Helper - Table view",
+  "style": "Table",
+  "Fields": [
+    {
+      "name": "deviceregister",
+      "UseExistingInfo": false,
+      "FrontendFields": [
+        {
+          "name": "Device Register",
+          "value": "deviceregister",
+          "formatter": "table"
+        }
+      ],
+      "StoreAs": "JSON",
+      "API": "Graph",
+      "ExtractFields": [
+        "deviceName",
+        "lastSyncDateTime",
+        "osVersion",
+        "userPrincipalName",
+        "complianceState"
+      ],
+      "URL": "https://graph.microsoft.com/beta/deviceManagement/managedDevices"
+    },
+    {
+      "name": "adminsTable",
+      "UseExistingInfo": false,
+      "FrontendFields": [
+        {
+          "name": "Admins Table",
+          "value": "adminsTable",
+          "formatter": "table"
+        }
+      ],
+      "StoreAs": "JSON",
+      "API": "Graph",
+      "ExtractFields": [
+        "displayName",
+        "userPrincipalName"
+      ],
+      "URL": "https://graph.microsoft.com/beta/directoryRoles/roleTemplateId=62e90394-69f5-4237-9190-012177145e10/members"
+    },
+    {
+      "name": "windowsProtectionState",
+      "UseExistingInfo": false,
+      "FrontendFields": [
+        {
+          "name": "Defender List",
+          "value": "windowsProtectionState",
+          "formatter": "table"
+        }
+      ],
+      "StoreAs": "JSON",
+      "API": "Graph",
+      "ExtractFields": [
+        "windowsProtectionState"
+      ],
+      "parameters": {},
+      "URL": "https://graph.microsoft.com/beta/deviceManagement/managedDevices?$expand=windowsProtectionState"
+    },
+    {
+      "name": "detectedApps",
+      "UseExistingInfo": false,
+      "FrontendFields": [
+        {
+          "name": "Detected Apps",
+          "value": "detectedApps",
+          "formatter": "table"
+        }
+      ],
+      "StoreAs": "JSON",
+      "API": "Graph",
+      "ExtractFields": [
+        "displayName",
+        "version",
+        "platform",
+        "publisher"
+      ],
+      "URL": "https://graph.microsoft.com/beta/deviceManagement/detectedApps"
+    },
+    {
+      "name": "userRegistrationDetails",
+      "UseExistingInfo": false,
+      "FrontendFields": [
+        {
+          "name": "User Registration Details",
+          "value": "userRegistrationDetails",
+          "formatter": "table"
+        }
+      ],
+      "StoreAs": "JSON",
+      "API": "Graph",
+      "ExtractFields": [
+        "userDisplayName",
+        "isAdmin",
+        "isMFARegistered",
+        "defaultMFAMethod"
+      ],
+      "URL": "https://graph.microsoft.com/beta/reports/authenticationMethods/userRegistrationDetails"
+    }
+  ]
+}
