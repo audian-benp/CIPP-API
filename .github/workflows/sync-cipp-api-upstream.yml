@@ -1,0 +1,30 @@
+name: Sync CIPP-API Fork with Upstream
+
+on:
+  schedule:
+    # Run every day at 2 AM UTC
+    - cron: '0 2 * * *'
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-cipp-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CIPP-API fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync CIPP-API upstream
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+
+          git remote add upstream https://github.com/KelvinTegelaar/CIPP-API.git || git remote set-url upstream https://github.com/KelvinTegelaar/CIPP-API.git
+          git fetch upstream master
+          git merge upstream/master --no-edit
+          git push origin master
