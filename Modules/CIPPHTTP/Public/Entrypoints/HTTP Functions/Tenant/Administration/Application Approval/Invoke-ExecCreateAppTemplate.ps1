@@ -236,17 +236,6 @@ function Invoke-ExecCreateAppTemplate {
         $PermissionSetId = $null
         $PermissionSetName = "$DisplayName (Auto-created)"
 
-        # The service principal fallback above emits a separate entry for delegated access
-        # (oauth2PermissionGrants) and application access (appRoleAssignments), so a resource that has
-        # both appears twice. $CIPPPermissions is keyed by resourceAppId, so without merging here the
-        # second entry overwrites the first and one of the two permission types is silently discarded.
-        $Permissions = @($Permissions | Group-Object -Property resourceAppId | ForEach-Object {
-                [PSCustomObject]@{
-                    resourceAppId  = $_.Name
-                    resourceAccess = @($_.Group.resourceAccess)
-                }
-            })
-
         if ($Permissions -and $Permissions.Count -gt 0) {
             # Build bulk requests to get all service principals efficiently using object IDs from cached list
             $BulkRequests = [System.Collections.Generic.List[object]]::new()
@@ -345,11 +334,9 @@ function Invoke-ExecCreateAppTemplate {
                     }
                 }
 
-                # A resource can carry several oauth2PermissionGrants rows (an AllPrincipals grant plus
-                # per-user grants), which repeats the same scope once merged, so dedupe on the claim value.
                 $CIPPPermissions[$ResourceAppId] = [PSCustomObject]@{
-                    applicationPermissions = @($AppPerms | Sort-Object -Property value -Unique)
-                    delegatedPermissions   = @($DelegatedPerms | Sort-Object -Property value -Unique)
+                    applicationPermissions = @($AppPerms)
+                    delegatedPermissions   = @($DelegatedPerms)
                 }
             }
 

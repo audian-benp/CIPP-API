@@ -68,12 +68,10 @@ function Invoke-ExecContainerManagement {
         }
 
         $version = $manifest.annotations.'org.opencontainers.image.version'
-        $created = $manifest.annotations.'org.opencontainers.image.created'
-        if ((-not $version -or -not $created) -and $manifest.config.digest) {
+        if (-not $version -and $manifest.config.digest) {
             try {
                 $config = Invoke-RestMethod -Uri "https://ghcr.io/v2/$imagePath/blobs/$($manifest.config.digest)" -Method GET -Headers $authHeader -ErrorAction Stop
-                if (-not $version) { $version = $config.config.Labels.'org.opencontainers.image.version' }
-                if (-not $created) { $created = $config.config.Labels.'org.opencontainers.image.created' }
+                $version = $config.config.Labels.'org.opencontainers.image.version'
             } catch {
                 Write-Information "Could not read image config labels for $($imagePath):$Tag — $($_.Exception.Message)"
             }
@@ -82,7 +80,6 @@ function Invoke-ExecContainerManagement {
         return [pscustomobject]@{
             Digest  = [string]$digest
             Version = [string]$version
-            Created = [string]$created
         }
     }
 
@@ -115,22 +112,17 @@ function Invoke-ExecContainerManagement {
                     }
                 }
 
-                # Read update settings and last check result, reconciled against the running
-                # build — a restart may have applied the previously detected update, which
-                # would otherwise keep showing "update available" until the next check.
-                # Sync also resolves defaults for never-saved fields (auto-restart on,
-                # hourly checks, preferred time 23:00).
-                $Settings = Sync-CippContainerUpdateState
+                # Read update settings and last check result
+                $Settings = Get-CIPPAzDataTableEntity @SettingsTable -Filter "PartitionKey eq 'Settings' and RowKey eq 'UpdateConfig'" | Select-Object -First 1
                 $UpdateInfo = @{
-                    AutoUpdate      = $true
-                    CheckInterval   = '1h'
-                    CheckTime       = '23'
+                    AutoUpdate      = $false
+                    CheckInterval   = '0'
+                    CheckTime       = $null
                     LastCheck       = $null
                     UpdateAvailable = $false
                     RunningVersion  = $null
                     RemoteVersion   = $null
                     RemoteDigest    = $null
-                    RemoteBuildDate = $null
                 }
                 if ($Settings) {
                     $UpdateInfo.AutoUpdate = $Settings.AutoUpdate -eq 'true'
@@ -141,7 +133,6 @@ function Invoke-ExecContainerManagement {
                     $UpdateInfo.RunningVersion = $Settings.RunningVersion ?? $null
                     $UpdateInfo.RemoteVersion = $Settings.RemoteVersion ?? $null
                     $UpdateInfo.RemoteDigest = $Settings.RemoteDigest ?? $null
-                    $UpdateInfo.RemoteBuildDate = $Settings.RemoteBuildDate ?? $null
                 }
 
                 $Body = @{
@@ -149,7 +140,6 @@ function Invoke-ExecContainerManagement {
                         CurrentVersion    = $CurrentVersion
                         CommitSha         = $CommitSha
                         ImageTag          = $ImageTag
-                        BuildDate         = $env:BUILD_DATE ?? 'unknown'
                         CurrentChannel    = $CurrentChannel
                         ConfiguredChannel = $ConfiguredChannel
                         CurrentImage      = $CurrentImage
@@ -209,7 +199,6 @@ function Invoke-ExecContainerManagement {
                 $RemoteInfo = Get-GHCRImageInfo -ImageRef $CurrentImage -Tag $CheckTag
                 $RemoteVersion = $RemoteInfo.Version
                 $RemoteDigest = $RemoteInfo.Digest
-                $RemoteBuildDate = $RemoteInfo.Created
 
                 $RunningVersion = $env:APP_VERSION
                 $UpdateAvailable = $false
@@ -225,21 +214,16 @@ function Invoke-ExecContainerManagement {
                     RunningVersion  = [string]($RunningVersion ?? '')
                     RemoteVersion   = [string]($RemoteVersion ?? '')
                     RemoteDigest    = [string]($RemoteDigest ?? '')
-                    RemoteBuildDate = [string]($RemoteBuildDate ?? '')
-                    CheckedTag      = [string]($CheckTag ?? '')
                 }
                 $Existing = Get-CIPPAzDataTableEntity @SettingsTable -Filter "PartitionKey eq 'Settings' and RowKey eq 'UpdateConfig'" | Select-Object -First 1
                 if ($Existing) {
-                    # Carry saved schedule fields forward; never-saved fields materialize
-                    # the defaults (auto-restart on, hourly, 23:00). An empty CheckTime is
-                    # an explicit "no preferred time" and is preserved.
-                    $Entity.AutoUpdate = $Existing.AutoUpdate ?? 'true'
-                    $Entity.CheckInterval = $Existing.CheckInterval ?? '1h'
-                    $Entity.CheckTime = $Existing.CheckTime ?? '23'
+                    $Entity.AutoUpdate = $Existing.AutoUpdate ?? 'false'
+                    $Entity.CheckInterval = $Existing.CheckInterval ?? '0'
+                    $Entity.CheckTime = $Existing.CheckTime ?? ''
                 }
                 Add-CIPPAzDataTableEntity @SettingsTable -Entity $Entity -Force | Out-Null
 
-                $Settings = Sync-CippContainerUpdateState
+                $Settings = Get-CIPPAzDataTableEntity @SettingsTable -Filter "PartitionKey eq 'Settings' and RowKey eq 'UpdateConfig'" | Select-Object -First 1
                 if ($UpdateAvailable -and $Settings.AutoUpdate -eq 'true') {
                     Write-LogMessage -API $APIName -headers $Headers -message "Auto-update: new container version detected (running: $RunningVersion, remote: $RemoteVersion). Restarting." -sev Info
                     try { Request-CIPPRestart -Reason 'Auto-update: new container version available' } catch {}
@@ -257,7 +241,6 @@ function Invoke-ExecContainerManagement {
                         RunningVersion  = $RunningVersion
                         RemoteVersion   = $RemoteVersion
                         RemoteDigest    = $RemoteDigest
-                        RemoteBuildDate = $RemoteBuildDate
                         CheckedTag      = $CheckTag
                     }
                 }
@@ -279,20 +262,11 @@ function Invoke-ExecContainerManagement {
                 if ($CheckInterval -notin $ValidIntervals) {
                     throw "Invalid check interval: $CheckInterval. Valid: $($ValidIntervals -join ', ')"
                 }
-                # CheckTime arrives as a string — validate as [int]. A string comparison
-                # makes '3' -gt 23 true ('3' > '2' lexicographically), rejecting 03:00-09:00.
-                if ($null -ne $CheckTime -and "$CheckTime" -ne '') {
-                    $ParsedHour = 0
-                    if (-not [int]::TryParse([string]$CheckTime, [ref]$ParsedHour) -or $ParsedHour -lt 0 -or $ParsedHour -gt 23) {
-                        throw "Invalid check time: $CheckTime. Must be an hour between 0 and 23."
-                    }
-                    $CheckTime = $ParsedHour
-                } else {
-                    $CheckTime = $null
+                if ($CheckTime -and ($CheckTime -lt 0 -or $CheckTime -gt 23)) {
+                    throw "Invalid check time: $CheckTime. Must be 0-23 (UTC hour)."
                 }
 
-                # Read existing settings to preserve check results — the upsert replaces the
-                # whole entity, so every check-result field must be carried over here.
+                # Read existing settings to preserve check results
                 $Existing = Get-CIPPAzDataTableEntity @SettingsTable -Filter "PartitionKey eq 'Settings' and RowKey eq 'UpdateConfig'" | Select-Object -First 1
                 $Entity = @{
                     PartitionKey    = 'Settings'
@@ -302,17 +276,14 @@ function Invoke-ExecContainerManagement {
                     CheckTime       = [string]($CheckTime ?? '')
                     LastCheck       = [string]($Existing.LastCheck ?? '')
                     UpdateAvailable = [string]($Existing.UpdateAvailable ?? 'false')
-                    RunningVersion  = [string]($Existing.RunningVersion ?? '')
-                    RemoteVersion   = [string]($Existing.RemoteVersion ?? '')
+                    RunningDigest   = [string]($Existing.RunningDigest ?? '')
                     RemoteDigest    = [string]($Existing.RemoteDigest ?? '')
-                    RemoteBuildDate = [string]($Existing.RemoteBuildDate ?? '')
-                    CheckedTag      = [string]($Existing.CheckedTag ?? '')
                 }
                 Add-CIPPAzDataTableEntity @SettingsTable -Entity $Entity -Force | Out-Null
 
                 $IntervalLabel = if ($CheckInterval -eq '0') { 'disabled' } else { "every $CheckInterval" }
                 $AutoLabel = if ($AutoUpdate) { 'auto-restart enabled' } else { 'manual restart' }
-                $TimeLabel = if ($null -ne $CheckTime -and $CheckInterval -ne '0') { " at $('{0:d2}' -f $CheckTime):00" } else { '' }
+                $TimeLabel = if ($CheckTime -and $CheckInterval -ne '0') { " at ${CheckTime}:00 UTC" } else { '' }
                 $Result = "Update settings saved. Check interval: ${IntervalLabel}${TimeLabel}, $AutoLabel."
                 Write-LogMessage -API $APIName -headers $Headers -message $Result -sev Info
                 $Body = @{ Results = $Result }

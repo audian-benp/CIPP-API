@@ -52,8 +52,7 @@ function Invoke-ListMailboxes {
             @{Parameter = 'Identity'; Type = 'String' }
         )
 
-        $QueryParamNames = if ($Request.Query -is [System.Collections.IDictionary]) { @($Request.Query.Keys) } else { $Request.Query.PSObject.Properties.Name }
-        foreach ($Param in $QueryParamNames) {
+        foreach ($Param in $Request.Query.PSObject.Properties.Name) {
             $CmdParam = $AllowedParameters | Where-Object { $_.Parameter -eq $Param }
             if ($CmdParam) {
                 switch ($CmdParam.Type) {

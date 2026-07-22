@@ -31,9 +31,11 @@ function Add-CIPPApplicationPermission {
     } else {
         if (!$RequiredResourceAccess -and $TemplateId) {
             Write-Information "Adding application permissions for template $TemplateId"
-            $TemplatePermissions = Get-CIPPAppApprovalPermissions -TemplateId $TemplateId
-            $ApplicationId = $TemplatePermissions.ApplicationId
-            $Permissions = $TemplatePermissions.Permissions
+            $TemplateTable = Get-CIPPTable -TableName 'templates'
+            $Filter = "RowKey eq '$TemplateId' and PartitionKey eq 'AppApprovalTemplate'"
+            $Template = (Get-CIPPAzDataTableEntity @TemplateTable -Filter $Filter).JSON | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $ApplicationId = $Template.AppId
+            $Permissions = $Template.Permissions
             $RequiredResourceAccess = [System.Collections.Generic.List[object]]::new()
             foreach ($AppId in $Permissions.PSObject.Properties.Name) {
                 $AppPermissions = @($Permissions.$AppId.applicationPermissions)

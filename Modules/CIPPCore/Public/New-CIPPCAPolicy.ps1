@@ -92,7 +92,6 @@ function New-CIPPCAPolicy {
                     }
                 } else {
                     Write-Warning "User $_ not found in the tenant"
-                    $null = Write-LogMessage -Headers $Headers -API $APIName -message "CA policy user value '$_' did not match any user in the tenant and was dropped from the policy" -Sev 'Warning'
                 }
             }
         }
@@ -506,7 +505,7 @@ function New-CIPPCAPolicy {
                 }
 
                 foreach ($userType in 'includeUsers', 'excludeUsers') {
-                    if ($JSONobj.conditions.users.PSObject.Properties.Name -contains $userType -and $JSONobj.conditions.users.$userType -notin 'All', 'None', 'GuestsOrExternalUsers') {
+                    if ($JSONobj.conditions.users.PSObject.Properties.Name -contains $userType -and $JSONobj.conditions.users.$userType -notin 'All', 'None', 'GuestOrExternalUsers') {
                         $JSONobj.conditions.users.$userType = @(Convert-UserNameToId -userNames $JSONobj.conditions.users.$userType)
                     }
                 }

@@ -42,11 +42,9 @@ function Invoke-ListAlertResults {
                 $LatestByAlert[$Key] = $Row
             }
         }
-        $StaleCutoff = [datetime]::UtcNow.AddDays(-7).ToString('yyyyMMdd')
 
         $Results = [System.Collections.Generic.List[object]]::new()
         foreach ($Row in $LatestByAlert.Values) {
-            if ([string]$Row.PartitionKey -lt $StaleCutoff) { continue }
             if ([string]::IsNullOrWhiteSpace($Row.LogData)) { continue }
             try {
                 $Items = $Row.LogData | ConvertFrom-Json -ErrorAction Stop

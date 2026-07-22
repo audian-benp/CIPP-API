@@ -12,15 +12,10 @@ function Start-ContainerUpdateCheck {
 
     if ($PSCmdlet.ShouldProcess('Start-ContainerUpdateCheck', 'Check for container image updates')) {
         $SettingsTable = Get-CippTable -tablename 'ContainerUpdateSettings'
-        # Reconcile the stored check result with the running build first — a restart may
-        # have applied a previously detected update, and this must clear the stale
-        # "update available" flag even when checks are disabled or not yet due. Sync also
-        # resolves defaults for never-saved fields (auto-restart on, hourly, 23:00), so
-        # only an explicitly saved interval of '0' disables checking.
-        $Settings = Sync-CippContainerUpdateState
+        $Settings = Get-CIPPAzDataTableEntity @SettingsTable -Filter "PartitionKey eq 'Settings' and RowKey eq 'UpdateConfig'" | Select-Object -First 1
 
-        if (-not $Settings -or $Settings.CheckInterval -eq '0') {
-            Write-Information 'Container update check: disabled'
+        if (-not $Settings -or $Settings.CheckInterval -eq '0' -or [string]::IsNullOrWhiteSpace($Settings.CheckInterval)) {
+            Write-Information 'Container update check: disabled or not configured'
             return
         }
 
@@ -158,12 +153,10 @@ function Start-ContainerUpdateCheck {
             }
 
             $RemoteVersion = $manifest.annotations.'org.opencontainers.image.version'
-            $RemoteBuildDate = $manifest.annotations.'org.opencontainers.image.created'
-            if ((-not $RemoteVersion -or -not $RemoteBuildDate) -and $manifest.config.digest) {
+            if (-not $RemoteVersion -and $manifest.config.digest) {
                 try {
                     $config = Invoke-RestMethod -Uri "https://ghcr.io/v2/$imagePath/blobs/$($manifest.config.digest)" -Method GET -Headers $authHeader -ErrorAction Stop
-                    if (-not $RemoteVersion) { $RemoteVersion = $config.config.Labels.'org.opencontainers.image.version' }
-                    if (-not $RemoteBuildDate) { $RemoteBuildDate = $config.config.Labels.'org.opencontainers.image.created' }
+                    $RemoteVersion = $config.config.Labels.'org.opencontainers.image.version'
                 } catch {
                     Write-Information "Could not read image config labels: $($_.Exception.Message)"
                 }
@@ -178,16 +171,14 @@ function Start-ContainerUpdateCheck {
             $UpdateEntity = @{
                 PartitionKey    = 'Settings'
                 RowKey          = 'UpdateConfig'
-                AutoUpdate      = [string]($Settings.AutoUpdate ?? 'true')
-                CheckInterval   = [string]($Settings.CheckInterval ?? '1h')
-                CheckTime       = [string]($Settings.CheckTime ?? '23')
+                AutoUpdate      = [string]($Settings.AutoUpdate ?? 'false')
+                CheckInterval   = [string]($Settings.CheckInterval ?? '0')
+                CheckTime       = [string]($Settings.CheckTime ?? '')
                 LastCheck       = [string][int64](([DateTimeOffset]::UtcNow).ToUnixTimeSeconds())
                 UpdateAvailable = [string]$UpdateAvailable
                 RunningVersion  = [string]($RunningVersion ?? '')
                 RemoteVersion   = [string]($RemoteVersion ?? '')
                 RemoteDigest    = [string]($RemoteDigest ?? '')
-                RemoteBuildDate = [string]($RemoteBuildDate ?? '')
-                CheckedTag      = [string]($CheckTag ?? '')
             }
             Add-CIPPAzDataTableEntity @SettingsTable -Entity $UpdateEntity -Force | Out-Null
 
